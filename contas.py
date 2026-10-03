@@ -18,10 +18,29 @@ PASTA_APP = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_DADOS = os.path.join(PASTA_APP, "contas.json")
 ARQUIVO_BACKUP = os.path.join(PASTA_APP, "contas_backup.json")
 
+MESES = ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+         "agosto", "setembro", "outubro", "novembro", "dezembro")
+
+# tipo: (ordem na lista, fundo, texto, borda)
+ESTILOS = {
+    "atrasado": (0, "#f8d7da", "#721c24", "#dc3545"),
+    "hoje": (1, "#fff3cd", "#856404", "#e0a800"),
+    "urgente": (2, "#fff3cd", "#856404", "#ffc107"),
+    "futuro": (3, "#ffffff", "#2c3e50", "#bdc3c7"),
+    "pago": (4, "#d4edda", "#155724", "#28a745"),
+}
+
 
 def data_valida(ano, mes, dia):
     _, ultimo = calendar.monthrange(ano, mes)
     return datetime.date(ano, mes, min(dia, ultimo))
+
+
+def somar_mes(chave, n):
+    """Soma n meses a uma chave 'AAAA-MM'."""
+    ano, mes = map(int, chave.split("-"))
+    total = ano * 12 + (mes - 1) + n
+    return f"{total // 12}-{total % 12 + 1:02d}"
 
 
 def gerar_icone_sistema():
@@ -41,6 +60,7 @@ class AppContas:
         self.root.title("Minhas Contas")
         self.root.geometry("700x780")
         self.root.minsize(600, 500)
+        self.root.state("zoomed")  # 780px de altura não cabe em notebooks com tela de 768px
         self.root.configure(bg="#f4f6f9")
 
         self.ultimo_alarme_disparado = None  # Evita popups repetidos no mesmo dia
@@ -62,8 +82,9 @@ class AppContas:
     def iniciar_bandeja_sistema(self):
         """Cria o ícone no Systray (perto do relógio)"""
         menu = pystray.Menu(
-            pystray.MenuItem("Abrir Contas", lambda: self.mostrar_janela()),
-            pystray.MenuItem("Fechar Totalmente", lambda: self.fechar_definitivo()),
+            # default=True: um clique simples no ícone já abre a janela
+            pystray.MenuItem("Abrir Contas", lambda: self.mostrar_janela(), default=True),
+            pystray.MenuItem("Fechar Totalmente", lambda: self.root.after(0, self.fechar_definitivo)),
         )
         self.tray_icon = pystray.Icon(
             "MinhasContas",
@@ -84,7 +105,7 @@ class AppContas:
 
     def _restaurar_interface(self):
         self.root.deiconify()
-        self.root.state("normal")
+        self.root.state("zoomed")  # Tela cheia: letras e botões ficam bem visíveis
         self.root.lift()
         self.root.attributes("-topmost", True)
         self.root.after_idle(self.root.attributes, "-topmost", False)
@@ -113,7 +134,7 @@ class AppContas:
         urgentes = []
         for conta in self.contas:
             info = self.analisar_conta(conta)
-            if info["tipo"] in ("hoje", "atrasado"):
+            if info["tipo"] in ("urgente", "hoje", "atrasado"):
                 urgentes.append(conta["nome"])
 
         if urgentes:
@@ -137,10 +158,18 @@ class AppContas:
         return []
 
     def salvar_contas(self):
-        with open(ARQUIVO_DADOS, "w", encoding="utf-8") as f:
-            json.dump(self.contas, f, ensure_ascii=False, indent=2)
-        with open(ARQUIVO_BACKUP, "w", encoding="utf-8") as f:
-            json.dump(self.contas, f, ensure_ascii=False, indent=2)
+        # Grava num arquivo temporário e só depois substitui: se o PC desligar
+        # no meio da gravação, o arquivo antigo continua inteiro.
+        try:
+            for arquivo in (ARQUIVO_DADOS, ARQUIVO_BACKUP):
+                with open(arquivo + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(self.contas, f, ensure_ascii=False, indent=2)
+                os.replace(arquivo + ".tmp", arquivo)
+        except OSError:
+            messagebox.showerror(
+                "Erro", "Não foi possível salvar as contas.\nPeça ajuda a alguém da família.",
+                parent=self.root,
+            )
 
     def criar_cabecalho(self):
         frame_topo = tk.Frame(self.root, bg="#1a252f", padx=20, pady=12)
@@ -209,87 +238,37 @@ class AppContas:
         scrollbar.pack(side="right", fill="y")
 
     def analisar_conta(self, conta):
+        """Descobre o primeiro mês ainda não pago e compara seu vencimento com hoje.
+        Assim, uma conta esquecida no mês passado continua aparecendo como atrasada."""
         hoje = datetime.date.today()
         dia = int(conta.get("dia", 1))
-        ultimo_pago = conta.get("ultimo_pago", "")
+        chave_hoje = f"{hoje.year}-{hoje.month:02d}"
+        ultimo_pago = conta.get("ultimo_pago") or somar_mes(chave_hoje, -1)
 
-        chave_este_mes = f"{hoje.year}-{hoje.month:02d}"
-        venc_este_mes = data_valida(hoje.year, hoje.month, dia)
+        aberta = somar_mes(ultimo_pago, 1)  # primeiro mês ainda não pago
+        ano, mes = map(int, aberta.split("-"))
+        venc = data_valida(ano, mes, dia)
+        dias = (venc - hoje).days
 
-        if hoje <= venc_este_mes:
-            dias = (venc_este_mes - hoje).days
-            if ultimo_pago == chave_este_mes:
-                return {
-                    "ordem": 4,
-                    "bg": "#d4edda",
-                    "fg": "#155724",
-                    "borda": "#28a745",
-                    "texto": f"✅ PAGO! (Vencimento dia {dia})",
-                    "pago_agora": True,
-                    "chave": chave_este_mes,
-                    "tipo": "pago",
-                }
-            elif dias == 0:
-                return {
-                    "ordem": 1,
-                    "bg": "#fff3cd",
-                    "fg": "#856404",
-                    "borda": "#e0a800",
-                    "texto": "⚠️ VENCE HOJE! Não esqueça de pagar.",
-                    "pago_agora": False,
-                    "chave": chave_este_mes,
-                    "tipo": "hoje",
-                }
-            elif dias <= 3:
-                return {
-                    "ordem": 2,
-                    "bg": "#fff3cd",
-                    "fg": "#856404",
-                    "borda": "#ffc107",
-                    "texto": f"⚠️ Vence em {dias} dia(s) (Dia {dia})",
-                    "pago_agora": False,
-                    "chave": chave_este_mes,
-                    "tipo": "urgente",
-                }
-            else:
-                return {
-                    "ordem": 3,
-                    "bg": "#ffffff",
-                    "fg": "#2c3e50",
-                    "borda": "#bdc3c7",
-                    "texto": f"🗓️ Em dia — Vence dia {dia} (faltam {dias} dias)",
-                    "pago_agora": False,
-                    "chave": chave_este_mes,
-                    "tipo": "futuro",
-                }
+        if ultimo_pago >= chave_hoje:
+            tipo = "pago"
+            texto = f"✅ PAGO! Próximo vencimento: {venc.strftime('%d/%m')} (faltam {dias} dias)"
+        elif dias < 0:
+            tipo = "atrasado"
+            texto = f"🚨 ATRASADO! A conta de {MESES[mes - 1]} venceu há {-dias} dia(s)"
+        elif dias == 0:
+            tipo = "hoje"
+            texto = "⚠️ VENCE HOJE! Não esqueça de pagar."
+        elif dias <= 3:
+            tipo = "urgente"
+            texto = f"⚠️ Vence em {dias} dia(s) (dia {dia})"
         else:
-            if ultimo_pago == chave_este_mes:
-                mes_prox = 1 if hoje.month == 12 else hoje.month + 1
-                ano_prox = hoje.year + 1 if hoje.month == 12 else hoje.year
-                venc_prox = data_valida(ano_prox, mes_prox, dia)
-                dias_prox = (venc_prox - hoje).days
-                return {
-                    "ordem": 5,
-                    "bg": "#e8f5e9",
-                    "fg": "#2e7d32",
-                    "borda": "#a5d6a7",
-                    "texto": f"✅ Em dia! Próximo vencimento: {venc_prox.strftime('%d/%m')} ({dias_prox} dias)",
-                    "pago_agora": True,
-                    "chave": chave_este_mes,
-                    "tipo": "pago",
-                }
-            else:
-                dias_atraso = (hoje - venc_este_mes).days
-                return {
-                    "ordem": 0,
-                    "bg": "#f8d7da",
-                    "fg": "#721c24",
-                    "borda": "#dc3545",
-                    "texto": f"🚨 ATRASADO! Venceu há {dias_atraso} dia(s) (Dia {dia})",
-                    "pago_agora": False,
-                    "chave": chave_este_mes,
-                    "tipo": "atrasado",
-                }
+            tipo = "futuro"
+            texto = f"🗓️ Em dia — Vence dia {dia} (faltam {dias} dias)"
+
+        ordem, bg, fg, borda = ESTILOS[tipo]
+        return {"tipo": tipo, "texto": texto, "aberta": aberta,
+                "ordem": ordem, "bg": bg, "fg": fg, "borda": borda}
 
     def atualizar_lista(self):
         hoje = datetime.date.today()
@@ -310,6 +289,7 @@ class AppContas:
         itens_processados = []
         atrasadas = 0
         vencendo_hoje = 0
+        vencendo_logo = 0
 
         for idx, conta in enumerate(self.contas):
             info = self.analisar_conta(conta)
@@ -318,6 +298,8 @@ class AppContas:
                 atrasadas += 1
             elif info["tipo"] == "hoje":
                 vencendo_hoje += 1
+            elif info["tipo"] == "urgente":
+                vencendo_logo += 1
 
         if atrasadas > 0:
             self.frame_resumo.config(bg="#f8d7da")
@@ -330,6 +312,13 @@ class AppContas:
             self.frame_resumo.config(bg="#fff3cd")
             self.lbl_resumo.config(
                 text=f"⚠️ ATENÇÃO: Você tem {vencendo_hoje} conta(s) vencendo HOJE!",
+                fg="#856404",
+                bg="#fff3cd",
+            )
+        elif vencendo_logo > 0:
+            self.frame_resumo.config(bg="#fff3cd")
+            self.lbl_resumo.config(
+                text=f"⚠️ {vencendo_logo} conta(s) vencem nos próximos dias.",
                 fg="#856404",
                 bg="#fff3cd",
             )
@@ -380,7 +369,7 @@ class AppContas:
             btn_frame = tk.Frame(card, bg=info["bg"])
             btn_frame.pack(side="right")
 
-            if not info["pago_agora"]:
+            if info["tipo"] != "pago":
                 btn_pago = tk.Button(
                     btn_frame,
                     text="✅ Marcar Pago",
@@ -391,27 +380,27 @@ class AppContas:
                     pady=5,
                     cursor="hand2",
                     command=lambda i=idx_original, ch=info[
-                        "chave"
-                    ]: self.alternar_pagamento(i, ch, marcar=True),
+                        "aberta"
+                    ]: self.alternar_pagamento(i, ch),
                 )
             else:
                 btn_pago = tk.Button(
                     btn_frame,
                     text="↩ Desfazer",
-                    font=("Arial", 11),
+                    font=("Arial", 12),
                     bg="#6c757d",
                     fg="white",
                     padx=6,
                     pady=4,
-                    command=lambda i=idx_original: self.alternar_pagamento(
-                        i, "", marcar=False
-                    ),
+                    command=lambda i=idx_original, ch=somar_mes(
+                        info["aberta"], -2
+                    ): self.alternar_pagamento(i, ch),
                 )
             btn_pago.pack(side="left", padx=5)
 
             btn_del = tk.Button(
                 btn_frame,
-                text="🗑️",
+                text="Apagar",
                 font=("Arial", 12),
                 bg="#ffffff",
                 fg="#dc3545",
@@ -422,8 +411,8 @@ class AppContas:
             )
             btn_del.pack(side="left", padx=5)
 
-    def alternar_pagamento(self, idx, chave, marcar):
-        self.contas[idx]["ultimo_pago"] = chave if marcar else ""
+    def alternar_pagamento(self, idx, chave):
+        self.contas[idx]["ultimo_pago"] = chave
         self.salvar_contas()
         self.atualizar_lista()
 
@@ -442,8 +431,9 @@ class AppContas:
     def janela_adicionar_conta(self):
         janela = tk.Toplevel(self.root)
         janela.title("Nova Conta")
-        janela.geometry("380x280")
+        janela.configure(padx=25, pady=10)  # Sem tamanho fixo: a janela se ajusta ao conteúdo
         janela.resizable(False, False)
+        janela.transient(self.root)  # Fica sempre na frente da janela principal
         janela.grab_set()
 
         tk.Label(
@@ -504,12 +494,14 @@ class AppContas:
         )
         btn_salvar.pack(pady=15)
 
+        # Enter salva, Esc cancela
+        janela.bind("<Return>", lambda e: salvar())
+        janela.bind("<Escape>", lambda e: janela.destroy())
 
-def escutar_segunda_instancia(app):
+
+def escutar_segunda_instancia(app, s):
     """Fica escutando se o usuário clicou 2x no atalho na Área de Trabalho com o programa já aberto."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        s.bind(("127.0.0.1", PORTA_SOCKET))
         s.listen(2)
         while True:
             conn, _ = s.accept()
@@ -522,11 +514,10 @@ def escutar_segunda_instancia(app):
 
 
 if __name__ == "__main__":
-    # Verificação de Instância Única via Socket
-    s_teste = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Verificação de Instância Única via Socket (a porta fica reservada enquanto o programa roda)
+    s_servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        s_teste.bind(("127.0.0.1", PORTA_SOCKET))
-        s_teste.close()
+        s_servidor.bind(("127.0.0.1", PORTA_SOCKET))
     except OSError:
         # Programa já está aberto em segundo plano! Apenas pede para ele aparecer na tela
         try:
@@ -543,15 +534,13 @@ if __name__ == "__main__":
 
     # Inicia a thread que recebe os cliques do atalho da Área de Trabalho
     threading.Thread(
-        target=escutar_segunda_instancia, args=(app,), daemon=True
+        target=escutar_segunda_instancia, args=(app, s_servidor), daemon=True
     ).start()
 
-    # Se foi iniciado com o Windows (parâmetro --silencioso)
+    # Se foi iniciado com o Windows (parâmetro --silencioso), começa escondido
+    # e só aparece se houver conta urgente.
     if "--silencioso" in sys.argv:
         app.esconder_janela()
-        app.verificar_acionamento_automatico()
-    else:
-        # Aberto normalmente pelo atalho
-        app.verificar_acionamento_automatico()
+    app.verificar_acionamento_automatico()
 
     root.mainloop()

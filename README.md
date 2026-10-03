@@ -88,13 +88,3 @@ Na pasta do programa, os seguintes arquivos serão gerados pelo próprio aplicat
 * `contas.pyw`: Código-fonte da aplicação.
 * `contas.json`: Onde os nomes das contas e os pagamentos ficam salvos.
 * `contas_backup.json`: Cópia de segurança gerada automaticamente a cada alteração para garantir que nada se perca.
-
----
-
-## 💡 Dica Bônus: Abrir Sozinho ao Ligar o PC
-
-Se você quiser que o programa abra sozinho toda vez que ele ligar o notebook:
-
-1. Pressione as teclas `Windows + R` no teclado.
-2. Digite `shell:startup` e aperte **Enter** (vai abrir a pasta de Inicialização do Windows).
-3. Cole uma cópia do atalho **"Minhas Contas"** dentro dessa pasta.
