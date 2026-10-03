@@ -81,6 +81,23 @@ Para facilitar a identificação visual:
 
 
 
+## 🔄 Como Atualizar para uma Versão Nova
+
+Quando houver uma versão nova do programa no GitHub:
+
+1. Feche o programa: clique com o botão direito no ícone verde perto do relógio ➔ **Fechar Totalmente**.
+   *(Se ele continuar aberto, o Windows pode não deixar trocar o arquivo.)*
+2. ⚠️ **Por precaução**, copie os arquivos **`contas.json`** e **`contas_backup.json`** para outro lugar (por exemplo, a Área de Trabalho). Eles guardam as contas dele.
+3. Baixe o ZIP novo do GitHub e extraia, igual ao **Passo 2**.
+4. Pegue o arquivo **`contas.py`** novo e renomeie para **`contas.pyw`**, igual ao **Passo 3**.
+5. Coloque esse `contas.pyw` na pasta do programa, substituindo o antigo.
+   * ❌ **Não substitua nem apague** o `contas.json` e o `contas_backup.json` que já estão lá.
+6. Abra pelo atalho **Minhas Contas** e confira se as contas aparecem certinhas.
+
+Os atalhos da Área de Trabalho e da Inicialização continuam funcionando, porque o nome e o local do arquivo não mudam.
+
+---
+
 ## 📁 Estrutura de Arquivos Criados Automaticamente
 
 Na pasta do programa, os seguintes arquivos serão gerados pelo próprio aplicativo:
